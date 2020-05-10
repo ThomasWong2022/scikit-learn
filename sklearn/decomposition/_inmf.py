@@ -1058,27 +1058,25 @@ def integrative_non_negative_factorization(X, W=None, H=None, V=None, n_componen
             W = [np.zeros((n_samples[i], n_components), dtype=X.dtype) for i in len(X)]
     
     else:
-        W, H = _initialize_inmf(X, n_components, init=init,
-                               random_state=random_state)
-
-    
-    
-    
-    l1_reg_W, l1_reg_H, l2_reg_W, l2_reg_H = _compute_regularization(
-        alpha, l1_ratio, regularization)
+        W = list()
+        V = list()
+        for i in len(X):
+            Wk, Vk = _initialize_inmf(X[i], n_components, init=init,
+                                        random_state=random_state)
+            W.append(Wk)
+            V.append(Vk)
+        # Estimate H by the average of dataset factorisation 
+        H = sum(V)/len(V)
 
     if solver == 'cd':
-        W, H, n_iter = _fit_coordinate_descent(X, W, H, tol, max_iter,
-                                               l1_reg_W, l1_reg_H,
-                                               l2_reg_W, l2_reg_H,
+        W, H, V, n_iter  = _fit_coordinate_descent(X, W, H, V, tol, max_iter, lambda
                                                update_H=update_H,
                                                verbose=verbose,
                                                shuffle=shuffle,
                                                random_state=random_state)
     elif solver == 'mu':
-        W, H, n_iter = _fit_multiplicative_update(X, W, H, beta_loss, max_iter,
-                                                  tol, l1_reg_W, l1_reg_H,
-                                                  l2_reg_W, l2_reg_H, update_H,
+        W, H, V, n_iter = _fit_multiplicative_update(X, W, H, V, beta_loss, max_iter,
+                                                  tol, lambda, update_H,
                                                   verbose)
 
     else:
@@ -1088,13 +1086,7 @@ def integrative_non_negative_factorization(X, W=None, H=None, V=None, n_componen
         warnings.warn("Maximum number of iterations %d reached. Increase it to"
                       " improve convergence." % max_iter, ConvergenceWarning)
 
-    return W, H, n_iter
-
-
-
-
-
-
+    return W, H, V, n_iter
 
 
 class INMF(TransformerMixin, BaseEstimator):
@@ -1253,9 +1245,9 @@ class INMF(TransformerMixin, BaseEstimator):
     factorization with the beta-divergence. Neural Computation, 23(9).
     """
     @_deprecate_positional_args
-    def __init__(self, n_components=None, *, init=None, solver='cd',
+    def __init__(self, n_components=None, *, init=None, solver='mu',
                  beta_loss='frobenius', tol=1e-4, max_iter=200,
-                 random_state=None, alpha=0., l1_ratio=0., verbose=0,
+                 random_state=None, lambda=1., verbose=0,
                  shuffle=False):
         self.n_components = n_components
         self.init = init
@@ -1264,56 +1256,62 @@ class INMF(TransformerMixin, BaseEstimator):
         self.tol = tol
         self.max_iter = max_iter
         self.random_state = random_state
-        self.alpha = alpha
-        self.l1_ratio = l1_ratio
+        self.lambda = lambda
         self.verbose = verbose
         self.shuffle = shuffle
 
     def _more_tags(self):
         return {'requires_positive_X': True}
 
-    def fit_transform(self, X, y=None, W=None, H=None):
+    def fit_transform(self, X, y=None, W=None, H=None, V=None):
         """Learn a NMF model for the data X and returns the transformed data.
 
         This is more efficient than calling fit followed by transform.
 
         Parameters
         ----------
-        X : {array-like, sparse matrix}, shape (n_samples, n_features)
+        X : list of {array-like, sparse matrix}, shape (n_samples, n_features)
             Data matrix to be decomposed
 
         y : Ignored
 
-        W : array-like, shape (n_samples, n_components)
+        W : list of array-like, shape (n_samples, n_components)
             If init='custom', it is used as initial guess for the solution.
 
         H : array-like, shape (n_components, n_features)
             If init='custom', it is used as initial guess for the solution.
-
+        
+        V: list of array-like, shape (n_components, n_features)
+           If init='custom', it is used as initial guess for the solution.
+        
         Returns
         -------
-        W : array, shape (n_samples, n_components)
+        W : list of array, shape (n_samples, n_components)
             Transformed data.
+        H: array-like, shape (n_components, n_features)
+           shared factors
+        V: list of array, shape (n_components, n_features)
+           dataset specific factors
+        
         """
         X = self._validate_data(X, accept_sparse=('csr', 'csc'),
                                 dtype=[np.float64, np.float32])
 
-        W, H, n_iter_ = non_negative_factorization(
+        W, H, V, n_iter_ = integrative_non_negative_factorization(
             X=X, W=W, H=H, n_components=self.n_components, init=self.init,
             update_H=True, solver=self.solver, beta_loss=self.beta_loss,
-            tol=self.tol, max_iter=self.max_iter, alpha=self.alpha,
-            l1_ratio=self.l1_ratio, regularization='both',
+            tol=self.tol, max_iter=self.max_iter, lambda=self.lambda
             random_state=self.random_state, verbose=self.verbose,
             shuffle=self.shuffle)
 
-        self.reconstruction_err_ = _beta_divergence(X, W, H, self.beta_loss,
+        self.reconstruction_err_ = _beta_divergence(X, W, H, V, self.beta_loss,
                                                     square_root=True)
 
         self.n_components_ = H.shape[0]
         self.components_ = H
         self.n_iter_ = n_iter_
 
-        return W
+        return W, H, V
 
     def fit(self, X, y=None, **params):
         """Learn a NMF model for the data X.
@@ -1347,12 +1345,11 @@ class INMF(TransformerMixin, BaseEstimator):
         """
         check_is_fitted(self)
 
-        W, _, n_iter_ = non_negative_factorization(
+        W, _, _, n_iter_ = integrative_non_negative_factorization(
             X=X, W=None, H=self.components_, n_components=self.n_components_,
             init=self.init, update_H=False, solver=self.solver,
             beta_loss=self.beta_loss, tol=self.tol, max_iter=self.max_iter,
-            alpha=self.alpha, l1_ratio=self.l1_ratio, regularization='both',
-            random_state=self.random_state, verbose=self.verbose,
+            lambda=self.lambda, random_state=self.random_state, verbose=self.verbose,
             shuffle=self.shuffle)
 
         return W
