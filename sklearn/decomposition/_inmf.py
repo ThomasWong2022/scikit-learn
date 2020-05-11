@@ -1346,7 +1346,7 @@ class INMF(TransformerMixin, BaseEstimator):
         check_is_fitted(self)
 
         W, _, _, n_iter_ = integrative_non_negative_factorization(
-            X=X, W=None, H=self.components_, n_components=self.n_components_,
+            X=X, W=None, H=self.components_, V=None, n_components=self.n_components_,
             init=self.init, update_H=False, solver=self.solver,
             beta_loss=self.beta_loss, tol=self.tol, max_iter=self.max_iter,
             lambda=self.lambda, random_state=self.random_state, verbose=self.verbose,
@@ -1354,20 +1354,23 @@ class INMF(TransformerMixin, BaseEstimator):
 
         return W
 
-    def inverse_transform(self, W):
+    def inverse_transform(self, W, V):
         """Transform data back to its original space.
 
         Parameters
         ----------
-        W : {array-like, sparse matrix}, shape (n_samples, n_components)
+        W : list of {array-like, sparse matrix}, shape (n_samples, n_components)
             Transformed data matrix
+
+        V: list of {array-like, sparse matrix}, shape (n_components,n_features)
+           Dataset specific factors
 
         Returns
         -------
-        X : {array-like, sparse matrix}, shape (n_samples, n_features)
+        X : list of {array-like, sparse matrix}, shape (n_samples, n_features)
             Data matrix of original shape
 
         .. versionadded:: 0.18
         """
         check_is_fitted(self)
-        return np.dot(W, self.components_)
+        return [np.dot(W[i], self.components_ + V[i]) for i in len(W)]
