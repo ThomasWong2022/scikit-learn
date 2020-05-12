@@ -18,6 +18,7 @@ with warnings.catch_warnings():
 
 
 from ._nmf import NMF, non_negative_factorization  # noqa
+from ._inmf import INMF, integrative_non_negative_factorization  # noqa
 from ._pca import PCA  # noqa
 from ._incremental_pca import IncrementalPCA  # noqa
 from ._kernel_pca import KernelPCA  # noqa
