@@ -512,7 +512,7 @@ def _fit_coordinate_descent(X, W, H, tol=1e-4, max_iter=200, l1_reg_W=0,
                 print("Converged at iteration", n_iter + 1)
             break
 
-    return W, Ht.T, n_iter
+    return W, Ht.T, V, n_iter
 
 # Update W for one of the datasets 
 def _multiplicative_update_w(X, W, H, V, beta_loss, alpha, gamma, update_H=True):
@@ -606,10 +606,10 @@ def _multiplicative_update_v(X, W, H, V, beta_loss, alpha, gamma, update_H=True)
     
     if beta_loss == 2:
         # Numerator
-        numerator = safe_sparse_dot(V.T,X)
+        numerator = safe_sparse_dot(W.T,X)
         # Denominator
-        WHt = np.dot(W, H.T+V.T)
-        denominator = np.dot(V.T, WHt) + regularisation
+        WHt = np.dot(W, H+V)
+        denominator = np.dot(W.T, WHt) + regularisation
 
     else:
         # Numerator
@@ -650,7 +650,7 @@ def _multiplicative_update_v(X, W, H, V, beta_loss, alpha, gamma, update_H=True)
         # Denominator
         if beta_loss == 1:
             Wsum = np.sum(W, axis=0)  # shape(n_components, )
-            denominator = W_sum[:, np.newaxis]  + regularisation
+            denominator = Wsum[:, np.newaxis]  + regularisation
 
         else:
             # computation of WHHt = dot(dot(W, H) ** beta_loss - 1, H.T)
@@ -763,7 +763,7 @@ def _multiplicative_update_h(X, W, H, V, beta_loss, alpha, gamma):
     return delta_H
 
 
-def _fit_multiplicative_update(X, W, H, beta_loss='frobenius',
+def _fit_multiplicative_update(X, W, H, V, beta_loss='frobenius',
                                max_iter=200, tol=1e-4,
                                alpha=1.0, update_H=True, verbose=0):
     """Compute Non-negative Matrix Factorization with Multiplicative Update
@@ -899,7 +899,7 @@ def _fit_multiplicative_update(X, W, H, beta_loss='frobenius',
 
 def integrative_non_negative_factorization(X, W=None, H=None, V=None, n_components=None,
                                init=None, update_H=True, solver='mu',
-                               beta_loss='frobenius', tol=1e-4,
+                               beta_loss=2, tol=1e-4,
                                max_iter=200, alpha=1.0, random_state=None,
                                verbose=0, shuffle=False):
     
@@ -994,8 +994,7 @@ def integrative_non_negative_factorization(X, W=None, H=None, V=None, n_componen
         .. versionadded:: 0.19
            Multiplicative Update solver.
 
-    beta_loss : float or string, default 'frobenius'
-        String must be in {'frobenius', 'kullback-leibler', 'itakura-saito'}.
+    beta_loss : float , default 2
         Beta divergence to be minimized, measuring the distance between X
         and the dot product WH. Note that values different from 'frobenius'
         (or 2) and 'kullback-leibler' (or 1) lead to significantly slower
@@ -1054,13 +1053,15 @@ def integrative_non_negative_factorization(X, W=None, H=None, V=None, n_componen
     Fevotte, C., & Idier, J. (2011). Algorithms for nonnegative matrix
     factorization with the beta-divergence. Neural Computation, 23(9).
     """
-    X = check_array(X, accept_sparse=('csr', 'csc'),
-                    dtype=[np.float64, np.float32])
-    check_non_negative(X, "NMF (input X)")
-    beta_loss = _check_string_param(solver, regularization, beta_loss, init)
 
-    if X.min() == 0 and beta_loss <= 0:
-        raise ValueError("When beta_loss <= 0 and X contains zeros, "
+    for i in range(len(X)):
+        X[i] = check_array(X[i], accept_sparse=('csr', 'csc'), dtype=[np.float64, np.float32])
+        check_non_negative(X[i], "NMF (input X)")
+
+        # beta_loss = _check_string_param(solver, regularization, beta_loss, init)
+
+        if X[i].min() == 0 and beta_loss <= 0:
+            raise ValueError("When beta_loss <= 0 and X contains zeros, "
                          "the solver may diverge. Please add small values to "
                          "X, or use a positive beta_loss.")
 
@@ -1119,7 +1120,7 @@ def integrative_non_negative_factorization(X, W=None, H=None, V=None, n_componen
         H = sum(V)/len(V)
 
     if solver == 'cd':
-        W, H, V, n_iter  = _fit_coordinate_descent(X, W, H, V, tol, max_iter, alpha
+        W, H, V, n_iter  = _fit_coordinate_descent(X, W, H, V, tol, max_iter, alpha,
                                                update_H=update_H,
                                                verbose=verbose,
                                                shuffle=shuffle,
@@ -1249,9 +1250,10 @@ class INMF(TransformerMixin, BaseEstimator):
     --------
     >>> import numpy as np
     >>> X = np.array([[1, 1], [2, 1], [3, 1.2], [4, 1], [5, 0.8], [6, 1]])
-    >>> from sklearn.decomposition import NMF
-    >>> model = NMF(n_components=2, init='random', random_state=0)
-    >>> W = model.fit_transform(X)
+    >>> Y = np.array([[2, 5], [5, 2], [3, 4.2], [4, 2], [5, 1.8], [6, 3]])
+    >>> from sklearn.decomposition import INMF
+    >>> model = INMF(n_components=2, init='random', random_state=0)
+    >>> W = model.fit_transform([X,Y,X+Y])
     >>> H = model.components_
 
     References
@@ -1266,7 +1268,7 @@ class INMF(TransformerMixin, BaseEstimator):
     """
     @_deprecate_positional_args
     def __init__(self, n_components=None, *, init=None, solver='mu',
-                 beta_loss='frobenius', tol=1e-4, max_iter=200,
+                 beta_loss=2, tol=1e-4, max_iter=200,
                  random_state=None, alpha=1., verbose=0,
                  shuffle=False):
         self.n_components = n_components
@@ -1314,13 +1316,14 @@ class INMF(TransformerMixin, BaseEstimator):
            dataset specific factors
         
         """
-        X = self._validate_data(X, accept_sparse=('csr', 'csc'),
-                                dtype=[np.float64, np.float32])
+
+        for i in range(len(X)):
+            X[i] = self._validate_data(X[i], accept_sparse=('csr', 'csc'), dtype=[np.float64, np.float32])
 
         W, H, V, n_iter_ = integrative_non_negative_factorization(
             X=X, W=W, H=H, n_components=self.n_components, init=self.init,
             update_H=True, solver=self.solver, beta_loss=self.beta_loss,
-            tol=self.tol, max_iter=self.max_iter, alpha=self.alpha
+            tol=self.tol, max_iter=self.max_iter, alpha=self.alpha,
             random_state=self.random_state, verbose=self.verbose,
             shuffle=self.shuffle)
 
