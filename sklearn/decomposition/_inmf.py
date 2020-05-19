@@ -1115,9 +1115,9 @@ def integrative_non_negative_factorization(X, W=None, H=None, V=None, n_componen
         for i in range(len(X)):
             Wk, Vk = _initialize_nmf(X[i], n_components, init=init, random_state=random_state)
             W.append(Wk)
-            V.append(Vk)
+            V.append(Vk/2.0)
         # Estimate H by the average of dataset factorisation 
-        H = sum(V)/len(V)
+        H = sum(V)/(len(V)*2.0)
 
     if solver == 'cd':
         W, H, V, n_iter  = _fit_coordinate_descent(X, W, H, V, tol, max_iter, alpha,
