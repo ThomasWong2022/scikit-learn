@@ -1268,7 +1268,7 @@ class INMF(TransformerMixin, BaseEstimator):
     """
     @_deprecate_positional_args
     def __init__(self, n_components=None, *, init=None, solver='mu',
-                 beta_loss=2, tol=1e-4, max_iter=200,
+                 beta_loss=2, tol=1e-4, max_iter=2000,
                  random_state=None, alpha=1., verbose=0,
                  shuffle=False):
         self.n_components = n_components
@@ -1335,6 +1335,8 @@ class INMF(TransformerMixin, BaseEstimator):
         self.components_ = H
         self.n_iter_ = n_iter_
 
+        print('Reconstruction error {}'.format(self.reconstruction_err_))
+        
         return W, H, V
 
     def fit(self, X, y=None, **params):
@@ -1367,7 +1369,6 @@ class INMF(TransformerMixin, BaseEstimator):
         W : array, shape (n_samples, n_components)
             Transformed data
         """
-        check_is_fitted(self)
 
         W, _, _, n_iter_ = integrative_non_negative_factorization(
             X=X, W=None, H=self.components_, V=None, n_components=self.n_components_,
@@ -1396,5 +1397,4 @@ class INMF(TransformerMixin, BaseEstimator):
 
         .. versionadded:: 0.18
         """
-        check_is_fitted(self)
         return [np.dot(W[i], self.components_ + V[i]) for i in range(len(W))]
